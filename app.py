@@ -15,6 +15,7 @@ from dotenv import load_dotenv
 
 import os
 import shutil
+import uuid
 
 # =========================
 # LOAD ENV
@@ -50,31 +51,28 @@ app.add_middleware(
 # =========================
 
 PDF_FOLDER = "pdfs"
-CHROMA_DB_DIR = "chroma_db"
+CHROMA_DB_BASE_DIR = "chroma_db"
 
 os.makedirs(PDF_FOLDER, exist_ok=True)
-os.makedirs(CHROMA_DB_DIR, exist_ok=True)
+os.makedirs(CHROMA_DB_BASE_DIR, exist_ok=True)
+
+# =========================
+# GLOBAL STATE
+# =========================
+
+current_db_path = None
 
 # =========================
 # EMBEDDING MODEL
 # =========================
 
-embedding_model = HuggingFaceEmbeddings(
-    model_name="sentence-transformers/all-MiniLM-L6-v2"
-)
+# Embedding model moved inside endpoints for faster startup
 
 # =========================
 # LOAD VECTOR DB
 # =========================
 
-vector_db = None
-
-if os.listdir(CHROMA_DB_DIR):
-
-    vector_db = Chroma(
-        persist_directory=CHROMA_DB_DIR,
-        embedding_function=embedding_model
-    )
+# Vector DB moved inside endpoints for faster startup
 
 # =========================
 # GEMINI LLM
@@ -119,9 +117,14 @@ async def health_check():
 
 async def upload_pdf(file: UploadFile = File(...)):
 
-    global vector_db
+    global current_db_path
 
     try:
+
+        # Initialize embedding model
+        embedding_model = HuggingFaceEmbeddings(
+            model_name="sentence-transformers/all-MiniLM-L6-v2"
+        )
 
         # Validate PDF
         if not file.filename.endswith(".pdf"):
@@ -156,14 +159,19 @@ async def upload_pdf(file: UploadFile = File(...)):
 
         chunks = splitter.split_documents(documents)
 
+        # Generate unique DB path for this upload
+        current_db_path = os.path.join(CHROMA_DB_BASE_DIR, str(uuid.uuid4()))
+
         # Create vector DB
         vector_db = Chroma.from_documents(
             documents=chunks,
             embedding=embedding_model,
-            persist_directory=CHROMA_DB_DIR
+            persist_directory=current_db_path
         )
 
-        vector_db.persist()
+        # Clean up
+        del embedding_model
+        del vector_db
 
         return JSONResponse(
             content={
@@ -189,12 +197,9 @@ async def upload_pdf(file: UploadFile = File(...)):
 
 async def ask_question(question: str = Form(...)):
 
-    global vector_db
-
     try:
 
-        # Check DB
-        if vector_db is None:
+        if current_db_path is None:
 
             return JSONResponse(
                 status_code=400,
@@ -202,6 +207,17 @@ async def ask_question(question: str = Form(...)):
                     "error": "Upload PDF first"
                 }
             )
+
+        # Initialize embedding model
+        embedding_model = HuggingFaceEmbeddings(
+            model_name="sentence-transformers/all-MiniLM-L6-v2"
+        )
+
+        # Load vector DB
+        vector_db = Chroma(
+            persist_directory=current_db_path,
+            embedding_function=embedding_model
+        )
 
         # Retriever
         retriever = vector_db.as_retriever(
@@ -216,12 +232,17 @@ async def ask_question(question: str = Form(...)):
         )
 
         # Generate answer
-        response = qa_chain.run(question)
+        response = qa_chain.invoke({"query": question})
+        answer = response["result"]
+
+        # Clean up
+        del embedding_model
+        del vector_db
 
         return JSONResponse(
             content={
                 "question": question,
-                "answer": response
+                "answer": answer
             }
         )
 
@@ -242,18 +263,18 @@ async def ask_question(question: str = Form(...)):
 
 async def clear_database():
 
-    global vector_db
+    global current_db_path
 
     try:
 
-        # Remove ChromaDB files
-        if os.path.exists(CHROMA_DB_DIR):
+        # Remove all ChromaDB directories
+        if os.path.exists(CHROMA_DB_BASE_DIR):
 
-            shutil.rmtree(CHROMA_DB_DIR)
+            shutil.rmtree(CHROMA_DB_BASE_DIR)
 
-        os.makedirs(CHROMA_DB_DIR)
+        os.makedirs(CHROMA_DB_BASE_DIR, exist_ok=True)
 
-        vector_db = None
+        current_db_path = None
 
         return {
             "message": "Database cleared successfully"
@@ -267,3 +288,15 @@ async def clear_database():
                 "error": str(e)
             }
         )
+
+# =========================
+# MAIN
+# =========================
+
+if __name__ == "__main__":
+    import uvicorn
+    import os
+
+    port = int(os.environ.get("PORT", 10000))
+
+    uvicorn.run(app, host="0.0.0.0", port=port)

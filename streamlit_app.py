@@ -1,7 +1,7 @@
 import streamlit as st
 import requests
 
-API_URL = "http://127.0.0.1:8000"
+API_URL = "https://ai-pdf-bot.onrender.com"
 
 st.set_page_config(
     page_title="PDF Chatbot",
@@ -53,6 +53,7 @@ if uploaded_file is not None:
 
         else:
             st.error("Failed to upload PDF")
+            st.error(response.text)
 
 # =========================
 # QUESTION INPUT
