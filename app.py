@@ -5,7 +5,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from langchain_community.vectorstores import Chroma
 from langchain_community.embeddings import HuggingFaceEmbeddings
 
-from langchain_community.chat_models import ChatOllama
+from langchain_groq import ChatGroq
 from langchain_community.document_loaders import PyMuPDFLoader
 
 from langchain.text_splitter import RecursiveCharacterTextSplitter
@@ -22,7 +22,7 @@ import shutil
 
 load_dotenv()
 
-GOOGLE_API_KEY = os.getenv("GOOGLE_API_KEY")
+GROQ_API_KEY = os.getenv("GROQ_API_KEY")
 
 # =========================
 # FASTAPI APP
@@ -80,8 +80,11 @@ if os.listdir(CHROMA_DB_DIR):
 # GEMINI LLM
 # =========================
 
-llm = ChatOllama(
-    model="gemma2:2b",
+
+
+llm = ChatGroq(
+    groq_api_key=GROQ_API_KEY,
+    model_name="llama-3.1-8b-instant",
     temperature=0
 )
 
