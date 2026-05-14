@@ -60,7 +60,7 @@ ai-pdf-bot/
 └── README.md
 
 ```
-## OutPut
+## Sample OutPut
 
 <img width="1918" height="917" alt="Image" src="https://github.com/user-attachments/assets/28ff7cac-8874-42f2-b2f3-af9d76abd572" />
 
